@@ -77,6 +77,11 @@ def extract_media(
                         url = value
                     elif source.type == "data" and value:
                         content = _decode_base64(value)
+                    elif source.type == "file":
+                        # A provider-issued handle (ag-ui-protocol >= 1.0), not a URL: never fetch or forward it
+                        log_warning(
+                            f"Skipping AG-UI {part.type} part with a file source: provider file handles are not supported"
+                        )
 
             if url or content:
                 if part.type == "image" or (mime and mime.startswith("image/")):
