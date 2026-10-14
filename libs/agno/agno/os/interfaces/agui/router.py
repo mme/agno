@@ -17,6 +17,12 @@ try:
 except ImportError as e:
     raise ImportError("`ag_ui` not installed. Please install it with `pip install -U ag-ui-protocol`") from e
 
+try:
+    # ag-ui-protocol >= 1.0 only. Older versions have no protocol version to declare.
+    from ag_ui.core import PROTOCOL_VERSION as AGUI_PROTOCOL_VERSION
+except ImportError:
+    AGUI_PROTOCOL_VERSION = None  # type: ignore[assignment]
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -35,6 +41,15 @@ from agno.os.middleware.user_scope import assert_session_writable, caller_is_adm
 from agno.run.base import RunContext
 from agno.team.remote import RemoteTeam
 from agno.team.team import Team
+
+
+def build_run_started_event(thread_id: str, run_id: str) -> RunStartedEvent:
+    """RUN_STARTED, declaring the protocol version when the installed ag-ui-protocol has one."""
+    if AGUI_PROTOCOL_VERSION is None:
+        return RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id)
+    return RunStartedEvent(
+        type=EventType.RUN_STARTED, thread_id=thread_id, run_id=run_id, protocol_version=AGUI_PROTOCOL_VERSION
+    )
 
 
 async def run_entity(
@@ -61,7 +76,7 @@ async def run_entity(
         # 2. Convert frontend tool definitions to Agno Functions
         client_tools = parse_client_tools(run_input.tools) or None
 
-        yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id=run_input.thread_id, run_id=run_id)
+        yield build_run_started_event(run_input.thread_id, run_id)
 
         session_state = validate_state(run_input.state, run_input.thread_id)
 

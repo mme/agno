@@ -1,4 +1,5 @@
 import base64
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -2075,6 +2076,33 @@ def test_extract_media_binary_content():
     assert files[0].filename == "archive.bin"
 
 
+def test_extract_media_skips_file_source_with_warning(caplog):
+    """Test a provider file handle is skipped with a warning, never forwarded as a URL."""
+    try:
+        from ag_ui.core.types import FileSource
+    except ImportError:
+        pytest.skip("installed ag-ui-protocol has no file source")
+
+    messages = [
+        UserMessage(
+            id="u1",
+            content=[
+                TextInputContent(text="check this"),
+                ImageInputContent(source=FileSource(value="file-abc123", provider="openai", mime_type="image/png")),
+                DocumentInputContent(source=FileSource(value="gs://bucket/report.pdf", mime_type="application/pdf")),
+                ImageInputContent(source=InputContentUrlSource(value="https://example.com/cat.png")),
+            ],
+        ),
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="agno"):
+        images, audio, videos, files = extract_media(messages)
+
+    assert [image.url for image in images] == ["https://example.com/cat.png"]
+    assert audio == [] and videos == [] and files == []
+    assert sum("file source" in record.message for record in caplog.records) == 2
+
+
 def test_extract_media_url_without_mime():
     """Test URL sources without mime_type route by part.type, not MIME."""
     messages = [
@@ -2204,6 +2232,24 @@ async def test_run_entity_passes_agui_media():
     events = [event async for event in run_entity(fake_entity, _media_run_input())]
     assert events[0].type == EventType.RUN_STARTED
     _assert_media_forwarded(fake_entity.captured_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_run_entity_run_started_declares_protocol_version():
+    """Test RUN_STARTED carries protocolVersion on ag-ui-protocol >= 1.0, and omits it on older versions."""
+    try:
+        from ag_ui.core import PROTOCOL_VERSION
+    except ImportError:
+        PROTOCOL_VERSION = None
+
+    events = [event async for event in run_entity(_FakeRunner(), _media_run_input())]
+    run_started = events[0].model_dump(by_alias=True, exclude_none=True)
+
+    assert run_started["type"] == EventType.RUN_STARTED
+    if PROTOCOL_VERSION is None:
+        assert "protocolVersion" not in run_started
+    else:
+        assert run_started["protocolVersion"] == PROTOCOL_VERSION
 
 
 def test_extract_context_none_returns_none():
